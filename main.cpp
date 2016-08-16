@@ -4,8 +4,9 @@
 #define NUM_COLS 4
 
 #define NUM_LIGHTS 4
-#define PWM_FREQ 120
-#define BAUD 115200
+#define PWM_FREQ 3000  // Default PWM frequency (Hz)
+#define BAUD 115200    // Serial communication rate
+#define ADC_DELAY 1000 // ADC interrupt delay (us)
 
 Serial pc(USBTX, USBRX);
 DigitalOut led1(LED1);
@@ -26,10 +27,12 @@ DigitalOut mux1(p13);
 DigitalOut mux2(p12);
 DigitalOut mux3(p11);
 
+// USB data rx
 char rxBuffer[100] = {0};
 int rxBufferIndex = 0;
 unsigned char dataReady = 1;
 
+// Truth table for 16:1 row mux
 unsigned const char rowMux[16][4] = {
     {0, 0, 0, 0},
     {0, 0, 0, 1},
@@ -49,18 +52,35 @@ unsigned const char rowMux[16][4] = {
     {1, 1, 1, 1}
 };
 
+// The current row of the mux
+int row = 0;
+
+// Sensor data matrix
 int sensors[NUM_ROWS][NUM_COLS] = {0};
 
+/*******************************************************************************
+ * Sets all lights' PWM channels to the desired duty cycles
+ * @param dutyCycles Duty cycles (between 0 and 50) out of 100
+ ******************************************************************************/
 void setLights(int dutyCycles[NUM_LIGHTS]) {
     for (int i = 0; i < NUM_LIGHTS; i++) {
         lights[i]->write(dutyCycles[i] / 100.0);    
     }
 }
 
+/*******************************************************************************
+ * Sets an individual light's PWM channel to the desired duty cycle
+ * @param light The ID of the light (between 0 and NUM_LIGHTS - 1, inclusive)
+ * @param dutyCycle Duty cycle (between 0 and 50) out of 100
+ ******************************************************************************/
 void setLight(int light, int dutyCycle) {
     if (light >= 0 && light < NUM_LIGHTS) lights[light]->write(dutyCycle / 100.0);    
 }
 
+/*******************************************************************************
+ * Sets the pressure matrix's row mux to the specified channel
+ * @param channel The desired channel (between 0 and NUM_ROWS - 1, inclusive)
+ ******************************************************************************/
 void setRowMux(int channel) {
     mux0 = rowMux[channel][3];
     mux1 = rowMux[channel][2];
@@ -68,6 +88,12 @@ void setRowMux(int channel) {
     mux3 = rowMux[channel][0];
 }
 
+/*******************************************************************************
+ * Callback function called when the serial port receives data.
+ * If the received character is a newline, instruct the main loop that data
+ * is ready to be read from rxBuffer by setting dataReady to 1.
+ * Otherwise, add the received character to rxBuffer.
+ ******************************************************************************/
 void serialInterrupt() {
     char received = pc.getc();
     pc.printf("In serial interrupt\r\n");
@@ -83,6 +109,10 @@ void serialInterrupt() {
     led1.write(!led1);
 }
 
+/*******************************************************************************
+ * Sets up the serial port for communication and PWM for the lights, and
+ * initializes the device.
+ ******************************************************************************/
 void setup() {
     pc.baud(BAUD);
     pc.attach(&serialInterrupt);
@@ -97,9 +127,16 @@ void setup() {
         lights[i]->write(0.5);   // 50% duty cycle
     }
     
-    setRowMux(3);
+    row = 0;
+    setRowMux(row);
 }
 
+/*******************************************************************************
+ * Trims val to be between lower and upper, inclusive.
+ * @param val The value to be trimmed
+ * @param lower The lower bound
+ * @param upper The upper bound
+ ******************************************************************************/
 void trim(int *val, int lower, int upper) {
     if (val != NULL) {
         if (*val < lower) *val = lower;
@@ -107,6 +144,9 @@ void trim(int *val, int lower, int upper) {
     }    
 }
 
+/*******************************************************************************
+ * Sends the sensor matrix data over the serial port to the PC.
+ ******************************************************************************/
 void sendSensorData() {
     //pc.printf("SENSOR_DATA_START\r\n");
     for (int i = 0; i < NUM_ROWS; i++) {
@@ -118,15 +158,35 @@ void sendSensorData() {
     //pc.printf("SENSOR_DATA_END\r\n");    
 }
 
+/*******************************************************************************
+ * Callback function.
+ * Read the four ADC channels in parallel, save the data into the sensor matrix,
+ * and set the muxes for the next reading.
+ ******************************************************************************/
+void readAdcs() {
+    sensors[row][0] = ain0.read_u16();
+    sensors[row][1] = ain1.read_u16();
+    sensors[row][2] = ain2.read_u16();
+    sensors[row][3] = ain3.read_u16();
+    row++;
+    if (row >= NUM_ROWS) row = 0;
+    setRowMux(row);
+}
+
+/*******************************************************************************
+ * Main loop.
+ * Initialize the system and process commands when they are received via the
+ * serial port.
+ ******************************************************************************/
 int main() {
     int elapsedTime = 0;
-    Timer timer;
+    Timer delayTimer;
+    Ticker adcRead;
+    adcRead.attach_us(&readAdcs, 5000);
     setup();
-    timer.start();
+    delayTimer.start();
     
     while (1) {
-        
-        
         if (dataReady) {
             led2.write(1);
             dataReady = 0;
@@ -153,24 +213,8 @@ int main() {
             led2.write(0);    
         }
         
-        
-        
-        
-        // iterate through each row, set the mux, and read the columns
-        for (int i = 0; i < NUM_ROWS; i++) {
-            int delay = 500;
-            setRowMux(i);
-            wait_us(delay);
-            sensors[i][0] = ain0.read_u16();
-            sensors[i][1] = ain1.read_u16();
-            sensors[i][2] = ain2.read_u16();
-            sensors[i][3] = ain3.read_u16();
-            //pc.printf("V0 = %d | V1 = %d | V2 = %d | V3 = %d\r\n", 
-            //    sensors[i][0], sensors[i][1], sensors[i][2], sensors[i][3]);
-        }
-        
         sendSensorData();
-        int currentTime = timer.read_us();
+        int currentTime = delayTimer.read_us();
         pc.printf("Elapsed time (us): %d\r\n", currentTime - elapsedTime);
         elapsedTime = currentTime;
     }
