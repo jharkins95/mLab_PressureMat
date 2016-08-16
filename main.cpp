@@ -7,6 +7,7 @@
 #define PWM_FREQ 3000  // Default PWM frequency (Hz)
 #define BAUD 115200    // Serial communication rate
 #define ADC_DELAY 1000 // ADC interrupt delay (us)
+#define SERIAL_SEND_DELAY 1000 // Serial send interrupt delay (us);
 
 Serial pc(USBTX, USBRX);
 DigitalOut led1(LED1);
@@ -57,6 +58,10 @@ int row = 0;
 
 // Sensor data matrix
 int sensors[NUM_ROWS][NUM_COLS] = {0};
+int sensorLock = 0; // synchronization
+
+// Serial/ADC interrupt timers
+Ticker adcRead, serialSend;
 
 /*******************************************************************************
  * Sets all lights' PWM channels to the desired duty cycles
@@ -110,6 +115,48 @@ void serialInterrupt() {
 }
 
 /*******************************************************************************
+ * Trims val to be between lower and upper, inclusive.
+ * @param val The value to be trimmed
+ * @param lower The lower bound
+ * @param upper The upper bound
+ ******************************************************************************/
+void trim(int *val, int lower, int upper) {
+    if (val != NULL) {
+        if (*val < lower) *val = lower;
+        else if (*val > upper) *val = upper;    
+    }    
+}
+
+/*******************************************************************************
+ * Callback function.
+ * Sends the sensor matrix data over the serial port to the PC.
+ ******************************************************************************/
+void sendSensorData() {
+    sensorLock = 1;
+    for (int i = 0; i < NUM_ROWS; i++) {
+        pc.printf("%d %d %d %d %d\r\n", i, sensors[i][0], sensors[i][1], sensors[i][2], sensors[i][3]);
+    }
+    sensorLock = 0;
+}
+
+/*******************************************************************************
+ * Callback function.
+ * Read the four ADC channels in parallel, save the data into the sensor matrix,
+ * and set the muxes for the next reading.
+ ******************************************************************************/
+void readAdcs() {
+    if (!sensorLock) {
+        sensors[row][0] = ain0.read_u16();
+        sensors[row][1] = ain1.read_u16();
+        sensors[row][2] = ain2.read_u16();
+        sensors[row][3] = ain3.read_u16();
+        row++;
+        if (row >= NUM_ROWS) row = 0;
+        setRowMux(row);
+    }
+}
+
+/*******************************************************************************
  * Sets up the serial port for communication and PWM for the lights, and
  * initializes the device.
  ******************************************************************************/
@@ -129,48 +176,10 @@ void setup() {
     
     row = 0;
     setRowMux(row);
-}
-
-/*******************************************************************************
- * Trims val to be between lower and upper, inclusive.
- * @param val The value to be trimmed
- * @param lower The lower bound
- * @param upper The upper bound
- ******************************************************************************/
-void trim(int *val, int lower, int upper) {
-    if (val != NULL) {
-        if (*val < lower) *val = lower;
-        else if (*val > upper) *val = upper;    
-    }    
-}
-
-/*******************************************************************************
- * Sends the sensor matrix data over the serial port to the PC.
- ******************************************************************************/
-void sendSensorData() {
-    //pc.printf("SENSOR_DATA_START\r\n");
-    for (int i = 0; i < NUM_ROWS; i++) {
-        pc.printf("%d %d %d %d %d\r\n", i, sensors[i][0], sensors[i][1], sensors[i][2], sensors[i][3]);
-        //for (int j = 0; j < NUM_COLS; j++) {
-        //    pc.printf("%d %d %d\r\n", i, j, sensors[i][j]);    
-        //}
-    }
-    //pc.printf("SENSOR_DATA_END\r\n");    
-}
-
-/*******************************************************************************
- * Callback function.
- * Read the four ADC channels in parallel, save the data into the sensor matrix,
- * and set the muxes for the next reading.
- ******************************************************************************/
-void readAdcs() {
-    sensors[row][0] = ain0.read_u16();
-    sensors[row][1] = ain1.read_u16();
-    sensors[row][2] = ain2.read_u16();
-    sensors[row][3] = ain3.read_u16();
-    row++;
-    if (row >= NUM_ROWS) row = 0;
-    setRowMux(row);
+    
+    // Callback functions
+    serialSend.attach_us(&sendSensorData, SERIAL_SEND_DELAY);
+    adcRead.attach_us(&readAdcs, ADC_DELAY);
 }
 
 /*******************************************************************************
@@ -179,12 +188,7 @@ void readAdcs() {
  * serial port.
  ******************************************************************************/
 int main() {
-    int elapsedTime = 0;
-    Timer delayTimer;
-    Ticker adcRead;
-    adcRead.attach_us(&readAdcs, 5000);
     setup();
-    delayTimer.start();
     
     while (1) {
         if (dataReady) {
@@ -212,10 +216,5 @@ int main() {
         } else {
             led2.write(0);    
         }
-        
-        sendSensorData();
-        int currentTime = delayTimer.read_us();
-        pc.printf("Elapsed time (us): %d\r\n", currentTime - elapsedTime);
-        elapsedTime = currentTime;
     }
 }
