@@ -3,11 +3,10 @@
 #define NUM_ROWS 4
 #define NUM_COLS 4
 
-#define NUM_LIGHTS 4
+#define NUM_LIGHTS 6
 #define PWM_FREQ 3000  // Default PWM frequency (Hz)
-#define BAUD 115200    // Serial communication rate
-#define ADC_DELAY 1000 // ADC interrupt delay (us)
-#define SERIAL_SEND_DELAY 1000 // Serial send interrupt delay (us);
+#define BAUD 115200    // PC Serial communication rate
+#define ADC_DELAY 2000 // ADC/serial send interrupt delay (us)
 
 Serial pc(USBTX, USBRX);
 DigitalOut led1(LED1);
@@ -132,10 +131,10 @@ void trim(int *val, int lower, int upper) {
  * Sends the sensor matrix data over the serial port to the PC.
  ******************************************************************************/
 void sendSensorData() {
+    int prevRow = (row - 1 < 0) ? (NUM_ROWS - 1) : (row - 1);
     sensorLock = 1;
-    for (int i = 0; i < NUM_ROWS; i++) {
-        pc.printf("%d %d %d %d %d\r\n", i, sensors[i][0], sensors[i][1], sensors[i][2], sensors[i][3]);
-    }
+    pc.printf("%d %d %d %d %d\r\n", prevRow, sensors[prevRow][0], 
+    sensors[prevRow][1], sensors[prevRow][2], sensors[prevRow][3]);
     sensorLock = 0;
 }
 
@@ -168,6 +167,8 @@ void setup() {
     lights[1] = new PwmOut(p25);
     lights[2] = new PwmOut(p24);
     lights[3] = new PwmOut(p23);
+    lights[4] = new PwmOut(p24);
+    lights[5] = new PwmOut(p23);
     
     for (int i = 0; i < NUM_LIGHTS; i++) {
         lights[i]->period_us(333); // 3 kHz
@@ -178,7 +179,7 @@ void setup() {
     setRowMux(row);
     
     // Callback functions
-    serialSend.attach_us(&sendSensorData, SERIAL_SEND_DELAY);
+    serialSend.attach_us(&sendSensorData, ADC_DELAY);
     adcRead.attach_us(&readAdcs, ADC_DELAY);
 }
 
