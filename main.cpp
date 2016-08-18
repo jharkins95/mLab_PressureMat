@@ -3,10 +3,11 @@
 #define NUM_ROWS 4
 #define NUM_COLS 4
 
-#define NUM_LIGHTS 6
+#define NUM_LIGHTS 4
 #define PWM_FREQ 3000  // Default PWM frequency (Hz)
-#define BAUD 115200    // PC Serial communication rate
-#define ADC_DELAY 2000 // ADC/serial send interrupt delay (us)
+#define BAUD 115200    // Serial communication rate
+#define ADC_DELAY 1000 // ADC interrupt delay (us)
+#define SERIAL_SEND_DELAY 1000 // Serial send interrupt delay (us);
 
 Serial pc(USBTX, USBRX);
 DigitalOut led1(LED1);
@@ -31,7 +32,9 @@ DigitalOut mux3(p11);
 char rxBuffer[100] = {0};
 int rxBufferIndex = 0;
 unsigned char dataReady = 1;
-
+char okflag=0;
+char flag4send=0;
+char sendrowindex=0;
 // Truth table for 16:1 row mux
 unsigned const char rowMux[16][4] = {
     {0, 0, 0, 0},
@@ -60,7 +63,7 @@ int sensors[NUM_ROWS][NUM_COLS] = {0};
 int sensorLock = 0; // synchronization
 
 // Serial/ADC interrupt timers
-Ticker adcRead, serialSend;
+Ticker adcRead;
 
 /*******************************************************************************
  * Sets all lights' PWM channels to the desired duty cycles
@@ -105,7 +108,9 @@ void serialInterrupt() {
         rxBuffer[rxBufferIndex] = '\0';
         rxBufferIndex = 0;
         dataReady = 1;
-    } else {
+    } 
+    else if(received=='!') okflag=1;
+    else {
         rxBuffer[rxBufferIndex] = received; 
         rxBufferIndex++;
         if (rxBufferIndex > 100) rxBufferIndex = 100;
@@ -130,13 +135,7 @@ void trim(int *val, int lower, int upper) {
  * Callback function.
  * Sends the sensor matrix data over the serial port to the PC.
  ******************************************************************************/
-void sendSensorData() {
-    int prevRow = (row - 1 < 0) ? (NUM_ROWS - 1) : (row - 1);
-    sensorLock = 1;
-    pc.printf("%d %d %d %d %d\r\n", prevRow, sensors[prevRow][0], 
-    sensors[prevRow][1], sensors[prevRow][2], sensors[prevRow][3]);
-    sensorLock = 0;
-}
+
 
 /*******************************************************************************
  * Callback function.
@@ -144,15 +143,16 @@ void sendSensorData() {
  * and set the muxes for the next reading.
  ******************************************************************************/
 void readAdcs() {
-    if (!sensorLock) {
+   
         sensors[row][0] = ain0.read_u16();
         sensors[row][1] = ain1.read_u16();
         sensors[row][2] = ain2.read_u16();
         sensors[row][3] = ain3.read_u16();
         row++;
+        if(row!=0 && row%2==0) flag4send=1;
         if (row >= NUM_ROWS) row = 0;
         setRowMux(row);
-    }
+    
 }
 
 /*******************************************************************************
@@ -167,8 +167,6 @@ void setup() {
     lights[1] = new PwmOut(p25);
     lights[2] = new PwmOut(p24);
     lights[3] = new PwmOut(p23);
-    lights[4] = new PwmOut(p24);
-    lights[5] = new PwmOut(p23);
     
     for (int i = 0; i < NUM_LIGHTS; i++) {
         lights[i]->period_us(333); // 3 kHz
@@ -178,8 +176,7 @@ void setup() {
     row = 0;
     setRowMux(row);
     
-    // Callback functions
-    serialSend.attach_us(&sendSensorData, ADC_DELAY);
+   
     adcRead.attach_us(&readAdcs, ADC_DELAY);
 }
 
@@ -189,6 +186,7 @@ void setup() {
  * serial port.
  ******************************************************************************/
 int main() {
+    char temp;
     setup();
     
     while (1) {
@@ -217,5 +215,32 @@ int main() {
         } else {
             led2.write(0);    
         }
-    }
+        
+        
+        //when the flag is set, send two rows over to the pc
+        if(flag4send){
+            //send start character 
+            pc.putc('s');
+            //send two rows
+            for(char sendrow=0;sendrow<2;sendrow++){
+                //send all the columns
+                for(char sendcol=0;sendcol<4;sendcol++){
+                    //send the top 8 bits
+                    temp=sensors[sendrowindex][sendcol]>>8;
+                    pc.putc(temp);
+                    while(okflag==0);
+                    okflag=0;
+                    //send the bottom 8 bits
+                    temp=sensors[sendrowindex][sendcol];
+                    pc.putc(temp);
+                    while(okflag==0);
+                    okflag=0;
+                }
+                sendrowindex++;
+                //reset row index once the max is reached
+                if(sendrowindex>=NUM_ROWS)sendrowindex=0;
+             }
+             flag4send=0;
+        }   
+   }  
 }
