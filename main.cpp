@@ -5,35 +5,35 @@
 
 #define NUM_LIGHTS 4
 #define PWM_FREQ 3000  // Default PWM frequency (Hz)
-#define BAUD 115200    // Serial communication rate
+#define BAUD 115200   // Serial communication rate
 #define ADC_DELAY 1000 // ADC interrupt delay (us)
 #define SERIAL_SEND_DELAY 1000 // Serial send interrupt delay (us);
 
 Serial pc(USBTX, USBRX);
 DigitalOut led1(LED1);
 DigitalOut led2(LED2);
-
+DigitalOut led3(LED3);
 // PWM for controlling the lights' brightness
 PwmOut *lights[NUM_LIGHTS];
 
 // ADC inputs for reading the sensors
-AnalogIn ain0(p15);
-AnalogIn ain1(p16);
-AnalogIn ain2(p17);
-AnalogIn ain3(p18);
+AnalogIn ain0(p17);
+AnalogIn ain1(p18);
+AnalogIn ain2(p19);
+AnalogIn ain3(p20);
 
 // Mux select lines
-DigitalOut mux0(p14);
-DigitalOut mux1(p13);
-DigitalOut mux2(p12);
-DigitalOut mux3(p11);
-
+DigitalOut mux0(p30);
+DigitalOut mux1(p29);
+DigitalOut mux2(p28);
+DigitalOut mux3(p27);
+volatile char start=0;
 // USB data rx
 char rxBuffer[100] = {0};
 int rxBufferIndex = 0;
 unsigned char dataReady = 1;
-char okflag=0;
-char flag4send=0;
+volatile char okflag=0;
+volatile char flag4send=0;
 char sendrowindex=0;
 // Truth table for 16:1 row mux
 unsigned const char rowMux[16][4] = {
@@ -59,7 +59,7 @@ unsigned const char rowMux[16][4] = {
 int row = 0;
 
 // Sensor data matrix
-int sensors[NUM_ROWS][NUM_COLS] = {0};
+uint16_t sensors[NUM_ROWS][NUM_COLS] = {0};
 int sensorLock = 0; // synchronization
 
 // Serial/ADC interrupt timers
@@ -103,13 +103,17 @@ void setRowMux(int channel) {
  ******************************************************************************/
 void serialInterrupt() {
     char received = pc.getc();
-    pc.printf("In serial interrupt\r\n");
+    
     if (received == '\r' || received == '\n') {   
         rxBuffer[rxBufferIndex] = '\0';
         rxBufferIndex = 0;
         dataReady = 1;
     } 
     else if(received=='!') okflag=1;
+    else if(received=='>') 
+    {
+        start=1;
+        }
     else {
         rxBuffer[rxBufferIndex] = received; 
         rxBufferIndex++;
@@ -152,6 +156,7 @@ void readAdcs() {
         if(row!=0 && row%2==0) flag4send=1;
         if (row >= NUM_ROWS) row = 0;
         setRowMux(row);
+        led3.write(!led3);
     
 }
 
@@ -176,8 +181,11 @@ void setup() {
     row = 0;
     setRowMux(row);
     
-   
+    while(start==0);
+    led3.write(1);
     adcRead.attach_us(&readAdcs, ADC_DELAY);
+    
+    
 }
 
 /*******************************************************************************
@@ -219,8 +227,11 @@ int main() {
         
         //when the flag is set, send two rows over to the pc
         if(flag4send){
+       
             //send start character 
             pc.putc('s');
+            while(okflag==0);
+            okflag=0;
             //send two rows
             for(char sendrow=0;sendrow<2;sendrow++){
                 //send all the columns
@@ -228,7 +239,9 @@ int main() {
                     //send the top 8 bits
                     temp=sensors[sendrowindex][sendcol]>>8;
                     pc.putc(temp);
+
                     while(okflag==0);
+                                        led3.write(0);
                     okflag=0;
                     //send the bottom 8 bits
                     temp=sensors[sendrowindex][sendcol];
