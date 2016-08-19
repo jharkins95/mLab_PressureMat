@@ -3,18 +3,30 @@
 #define NUM_ROWS 4
 #define NUM_COLS 4
 
-#define NUM_LIGHTS 4
+#define NUM_LIGHTS 12
 #define PWM_FREQ 3000  // Default PWM frequency (Hz)
 #define BAUD 115200   // Serial communication rate
 #define ADC_DELAY 1000 // ADC interrupt delay (us)
 #define SERIAL_SEND_DELAY 1000 // Serial send interrupt delay (us);
 
+#define SPI_MOSI p11
+#define SPI_MISO p12
+#define SPI_SCK  p13
+#define SPI_CS   p14
+
 Serial pc(USBTX, USBRX);
+
+// SPI for lights 6-11
+SPI spi(SPI_MOSI, SPI_MISO, SPI_SCK);
+DigitalOut cs(SPI_CS);
+ 
+// debug LEDs
 DigitalOut led1(LED1);
 DigitalOut led2(LED2);
 DigitalOut led3(LED3);
+
 // PWM for controlling the lights' brightness
-PwmOut *lights[NUM_LIGHTS];
+PwmOut *lights[6];
 
 // ADC inputs for reading the sensors
 AnalogIn ain0(p17);
@@ -70,8 +82,17 @@ Ticker adcRead;
  * @param dutyCycles Duty cycles (between 0 and 50) out of 100
  ******************************************************************************/
 void setLights(int dutyCycles[NUM_LIGHTS]) {
-    for (int i = 0; i < NUM_LIGHTS; i++) {
+    // lights on the master (this mBed)
+    for (int i = 0; i < 6; i++) {
         lights[i]->write(dutyCycles[i] / 100.0);    
+    }
+    
+    // lights on the slave
+    for (int i = 6; i < NUM_LIGHTS; i++) {
+        cs = 0;
+        spi.write(i); // panel
+        spi.write(dutyCycles[i]);
+        cs = 1;
     }
 }
 
@@ -81,7 +102,13 @@ void setLights(int dutyCycles[NUM_LIGHTS]) {
  * @param dutyCycle Duty cycle (between 0 and 50) out of 100
  ******************************************************************************/
 void setLight(int light, int dutyCycle) {
-    if (light >= 0 && light < NUM_LIGHTS) lights[light]->write(dutyCycle / 100.0);    
+    if (light >= 0 && light < 6) lights[light]->write(dutyCycle / 100.0);
+    else if (light >= 6 && light < NUM_LIGHTS) {
+        cs = 0;
+        spi.write(light);
+        spi.write(dutyCycle);
+        cs = 1;
+    }
 }
 
 /*******************************************************************************
@@ -168,12 +195,22 @@ void setup() {
     pc.baud(BAUD);
     pc.attach(&serialInterrupt);
     
+    // Setup the spi for 8 bit data, high steady state clock,
+    // second edge capture, with a 1MHz clock rate
+    cs = 1;
+    spi.format(8,3);
+    spi.frequency(1000000);
+    
+    // set up the lights on this mBed
+    // light initialization on slave mBed handled by its own setup code
     lights[0] = new PwmOut(p26);
     lights[1] = new PwmOut(p25);
     lights[2] = new PwmOut(p24);
     lights[3] = new PwmOut(p23);
+    lights[4] = new PwmOut(p22);
+    lights[5] = new PwmOut(p21);
     
-    for (int i = 0; i < NUM_LIGHTS; i++) {
+    for (int i = 0; i < 6; i++) {
         lights[i]->period_us(333); // 3 kHz
         lights[i]->write(0.5);   // 50% duty cycle
     }
