@@ -1,21 +1,30 @@
 #include "mbed.h"
 #include <SPISlave.h>
+
+#define SPI_MOSI p11
+#define SPI_MISO p12
+#define SPI_SCK  p13
+#define SPI_CS   p14
+
 char ELbuffer[3];
 char bufcount=0;
 float PWM;
-SPISlave mbed2(p11,p12,p13,p14);
-PwmOut EL6(p21);
-PwmOut EL7(p22);
-PwmOut EL8(p23);
-PwmOut EL9(p24);
-PwmOut EL10(p25);
-PwmOut EL11(p26);
+
+SPISlave mbed2(SPI_MOSI,SPI_MISO,SPI_SCK,SPI_CS);
+Serial pc(USBTX, USBRX);
+
+PwmOut EL6(p26);
+PwmOut EL7(p25);
+PwmOut EL8(p24);
+PwmOut EL9(p23);
+PwmOut EL10(p22);
+PwmOut EL11(p21);
+
+DigitalOut led1(LED1);
 
 
 int main(){
-    //format SPI
-    mbed2.format(8,0);
-    mbed2.frequency(30000000);
+    led1 = 0;
     //format PWM, 333us period=3kHz
     EL6.period_us(333);
     EL7.period_us(333);
@@ -30,27 +39,29 @@ int main(){
     EL9.write(0);
     EL10.write(0);
     EL11.write(0);
+    
+    // Setup the spi for 8 bit data, high steady state clock,
+    // second edge capture, with a 1MHz clock rate
+    mbed2.format(16,3);
+    mbed2.frequency(1000000);
                             
     
  while(1){
     
     if(mbed2.receive()){
         //read the data from the 
-        ELbuffer[bufcount]=mbed2.read();
-        bufcount++;
-        if(bufcount==1 && ELbuffer[0]!=0xFF) bufcount=0;
-        else if(bufcount==3){
-            bufcount=0;
-            PWM=ELbuffer[2]/(100.0);
-            //logic for determining which EL pannel to light up
-            if(ELbuffer[1]==6)  EL6.write(PWM);
-            else if(ELbuffer[1]==7)EL7.write(PWM);
-            else if(ELbuffer[1]==8)EL8.write(PWM);
-            else if(ELbuffer[1]==9)EL9.write(PWM);
-            else if(ELbuffer[1]==10)EL10.write(PWM);
-            else if(ELbuffer[1]==11)EL11.write(PWM);
-            
-        }
+        uint16_t received = mbed2.read();
+        uint8_t channel = received >> 8;
+        uint8_t dutyCycle = (received & 0x00FF);
+        switch (channel) {
+            case 6: EL6.write(dutyCycle / 100.0); break;
+            case 7: EL7.write(dutyCycle / 100.0); break;
+            case 8: EL8.write(dutyCycle / 100.0); break;
+            case 9: EL9.write(dutyCycle / 100.0); break;
+            case 10: EL10.write(dutyCycle / 100.0); break;
+            case 11: EL11.write(dutyCycle / 100.0); break;
+        }    
+        pc.printf("channel %d, duty cycle %d\r\n", channel, dutyCycle);
     
     }   
   }  
