@@ -5,9 +5,9 @@
 
 #define NUM_LIGHTS 12
 #define PWM_FREQ 3000  // Default PWM frequency (Hz)
-#define BAUD 115200   // Serial communication rate
+#define BAUD 921600   // Serial communication rate
 #define ADC_DELAY 1000 // ADC interrupt delay (us)
-#define SERIAL_SEND_DELAY 1000 // Serial send interrupt delay (us);
+#define SERIAL_SEND_DELAY 12000 // Serial send interrupt delay (us);
 
 #define SPI_MOSI p11
 #define SPI_MISO p12
@@ -267,8 +267,7 @@ int main() {
        
             //send start character 
             pc.putc('s');
-            while(okflag==0);
-            okflag=0;
+            wait_us(10);
             //send two rows
             for(char sendrow=0;sendrow<2;sendrow++){
                 //send all the columns
@@ -277,14 +276,11 @@ int main() {
                     temp=sensors[sendrowindex][sendcol]>>8;
                     pc.putc(temp);
 
-                    while(okflag==0);
-                                        led3.write(0);
-                    okflag=0;
+                    wait_us(10);
                     //send the bottom 8 bits
                     temp=sensors[sendrowindex][sendcol];
                     pc.putc(temp);
-                    while(okflag==0);
-                    okflag=0;
+                    wait_us(10);
                 }
                 sendrowindex++;
                 //reset row index once the max is reached
