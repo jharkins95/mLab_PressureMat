@@ -6,7 +6,7 @@
 #define NUM_LIGHTS 12
 #define PWM_FREQ 3000  // Default PWM frequency (Hz)
 #define BAUD 921600   // Serial communication rate
-#define ADC_DELAY 1000 // ADC interrupt delay (us)
+#define ADC_DELAY 10000 // ADC interrupt delay (us)
 #define SERIAL_SEND_DELAY 12000 // Serial send interrupt delay (us);
 
 #define SPI_MOSI p11
@@ -43,6 +43,7 @@ volatile char start=0;
 // USB data rx
 char rxBuffer[100] = {0};
 int rxBufferIndex = 0;
+char newflag=1;
 unsigned char dataReady = 1;
 volatile char okflag=0;
 volatile char flag4send=0;
@@ -131,18 +132,23 @@ void setRowMux(int channel) {
 void serialInterrupt() {
     char received = pc.getc();
     
-    if (received == '\r' || received == '\n') {   
+    if (received =='~') {   
         rxBuffer[rxBufferIndex] = '\0';
         rxBufferIndex = 0;
         dataReady = 1;
+       
+       
     } 
-    else if(received=='!') okflag=1;
-    else if(received=='>') 
+    else if(received=='>'&& start==0) 
     {
         start=1;
         }
+
+    
     else {
         rxBuffer[rxBufferIndex] = received; 
+        rxBufferIndex++;
+        rxBuffer[rxBufferIndex]=' ';
         rxBufferIndex++;
         if (rxBufferIndex > 100) rxBufferIndex = 100;
     }
@@ -176,14 +182,17 @@ void trim(int *val, int lower, int upper) {
 void readAdcs() {
    
         sensors[row][0] = ain0.read_u16();
+    
         sensors[row][1] = ain1.read_u16();
+        
         sensors[row][2] = ain2.read_u16();
+      
         sensors[row][3] = ain3.read_u16();
         row++;
         if(row!=0 && row%2==0) flag4send=1;
         if (row >= NUM_ROWS) row = 0;
         setRowMux(row);
-        led3.write(!led3);
+      
     
 }
 
@@ -192,6 +201,7 @@ void readAdcs() {
  * initializes the device.
  ******************************************************************************/
 void setup() {
+    
     pc.baud(BAUD);
     pc.attach(&serialInterrupt);
     
@@ -217,10 +227,10 @@ void setup() {
     
     row = 0;
     setRowMux(row);
+   led3.write(0);
+   while(start==0);
     
-    while(start==0);
-    led3.write(1);
-    adcRead.attach_us(&readAdcs, ADC_DELAY);
+   adcRead.attach_us(&readAdcs, ADC_DELAY);
     
     
 }
@@ -239,15 +249,15 @@ int main() {
             led2.write(1);
             dataReady = 0;
             int light = 0, dutyCycle = 50, mux = 0;
+            char light2=0, DC=50;
             if (sscanf(rxBuffer, "MUX %d", &mux) == 1) {
                 trim(&mux, 0, NUM_ROWS - 1);
                 setRowMux(mux);
                 pc.printf("Mux set to %d\r\n", mux);
-            } else if (sscanf(rxBuffer, "SET_LIGHT %d %d", &light, &dutyCycle) == 2) {
-                trim(&light, 0, NUM_LIGHTS - 1);
-                trim(&dutyCycle, 0, 50);
-                setLight(light, dutyCycle);
-                pc.printf("Duty cycle on light %d set to #d\r\n", light, dutyCycle);
+            } else if (sscanf(rxBuffer, "s %c %c ", &light2,&DC) == 2) {
+                setLight((int)light2, (int)DC);
+                
+               
             } else if (sscanf(rxBuffer, "SET_LIGHTS %d", &dutyCycle) == 1) {
                 trim(&dutyCycle, 0, 50);
                 for (int i = 0; i < NUM_LIGHTS; i++) {
@@ -265,7 +275,8 @@ int main() {
         //when the flag is set, send two rows over to the pc
         if(flag4send){
        
-            //send start character 
+            
+      
             pc.putc('s');
             wait_us(10);
             //send two rows
