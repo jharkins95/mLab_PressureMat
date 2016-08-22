@@ -8,6 +8,7 @@
 #define BAUD 921600   // Serial communication rate
 #define ADC_DELAY 10000 // ADC interrupt delay (us)
 #define SERIAL_SEND_DELAY 12000 // Serial send interrupt delay (us);
+#define RX_BUFSIZE 2 // USB serial buffer size (NOT a string)
 
 #define SPI_MOSI p11
 #define SPI_MISO p12
@@ -40,14 +41,19 @@ DigitalOut mux1(p29);
 DigitalOut mux2(p28);
 DigitalOut mux3(p27);
 volatile char start=0;
+
 // USB data rx
-char rxBuffer[100] = {0};
+char rxBuffer[RX_BUFSIZE] = {0};
 int rxBufferIndex = 0;
 char newflag=1;
 unsigned char dataReady = 1;
 volatile char okflag=0;
 volatile char flag4send=0;
 char sendrowindex=0;
+
+// is PC sending a light command?
+char controlLight = 0;
+
 // Truth table for 16:1 row mux
 unsigned const char rowMux[16][4] = {
     {0, 0, 0, 0},
@@ -131,26 +137,24 @@ void setRowMux(int channel) {
  ******************************************************************************/
 void serialInterrupt() {
     char received = pc.getc();
-    
-    if (received =='~') {   
-        rxBuffer[rxBufferIndex] = '\0';
+       
+    if (received == '>' && start == 0) { // system start
+        start = 1;
+    } else if (received == 's') { // control a light panel
         rxBufferIndex = 0;
-        dataReady = 1;
-       
-       
-    } 
-    else if(received=='>'&& start==0) 
-    {
-        start=1;
+        controlLight = 1;
+    } else {
+        if (controlLight) {
+            rxBuffer[rxBufferIndex] = received; 
+            rxBufferIndex++;
+            if (rxBufferIndex >= RX_BUFSIZE) {
+                rxBufferIndex = 0;
+                controlLight = 0;
+                dataReady = 1;
+            }
+        } else {
+            rxBufferIndex = 0;    
         }
-
-    
-    else {
-        rxBuffer[rxBufferIndex] = received; 
-        rxBufferIndex++;
-        rxBuffer[rxBufferIndex]=' ';
-        rxBufferIndex++;
-        if (rxBufferIndex > 100) rxBufferIndex = 100;
     }
     led1.write(!led1);
 }
@@ -249,24 +253,8 @@ int main() {
             led2.write(1);
             dataReady = 0;
             int light = 0, dutyCycle = 50, mux = 0;
-            char light2=0, DC=50;
-            if (sscanf(rxBuffer, "MUX %d", &mux) == 1) {
-                trim(&mux, 0, NUM_ROWS - 1);
-                setRowMux(mux);
-                pc.printf("Mux set to %d\r\n", mux);
-            } else if (sscanf(rxBuffer, "s %c %c ", &light2,&DC) == 2) {
-                setLight((int)light2, (int)DC);
-                
-               
-            } else if (sscanf(rxBuffer, "SET_LIGHTS %d", &dutyCycle) == 1) {
-                trim(&dutyCycle, 0, 50);
-                for (int i = 0; i < NUM_LIGHTS; i++) {
-                    setLight(i, dutyCycle);    
-                }
-                pc.printf("Duty cycle on all lights changed to %d\r\n", dutyCycle);
-            } else {
-                pc.printf("Invalid command entered\r\n");    
-            }
+            char light2 = rxBuffer[0], DC = rxBuffer[1];
+            setLight((int)light2, (int)DC);
         } else {
             led2.write(0);    
         }
