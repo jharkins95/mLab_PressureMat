@@ -37,7 +37,7 @@ AnalogIn ain3(p20);
 
 // Mux select lines
 DigitalOut muxC0(p15);
-DgitalOut muxC1(p16);
+DigitalOut muxC1(p16);
 
 DigitalOut mux0(p30);
 DigitalOut mux1(p29);
