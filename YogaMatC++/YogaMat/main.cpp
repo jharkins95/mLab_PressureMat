@@ -17,6 +17,7 @@ int EL1 = 0, EL2 = 0;
 void sendlight(char light, char PWM);
 long scan=1;
 using namespace std;
+
 // serial handle 
 HANDLE serialh;
 char rec;
@@ -28,7 +29,7 @@ ofstream datalog("MatData.txt");
 
 int main() {
 	//open Com
-	serialh = CreateFile("\\\\.\\COM11", GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+	serialh = CreateFile("\\\\.\\COM5", GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
 	// Set params
 	DCB serialparams = { 0 };
 	serialparams.DCBlength = sizeof(serialparams);
@@ -39,24 +40,40 @@ int main() {
 	serialparams.Parity = 0;
 	SetCommState(serialh, &serialparams);
 	char start = '>';
-	WriteFile(serialh, &start, 1, NULL, NULL);
+
+	//WriteFile(serialh, &start, 1, NULL, NULL);
+	DWORD written = 0;
+	DWORD read = 0;
+	HFILE RXABORT; 
+	WriteFile(serialh, &start, 1, &written, NULL);
 	while (1) {
 		EL1 = 0;
 		EL2 = 0;
 
+		if (_kbhit()) {
+			PurgeComm("\\\\.\\COM5", PURGE_RXABORT |PURGE_RXCLEAR);
+			getchar();
+			break;
+		}
+
+
 		//wait for the character to tell pc to start reading
-		while (rec != 's') ReadFile(serialh, &rec, 1, NULL, NULL);
+		
+		//while (rec != 's') ReadFile(serialh, &rec, 1, NULL, NULL);
+		while (rec != 's') ReadFile(serialh, &rec, 1, &read, NULL);
 
 		for (char i = 0; i < 2; i++) {
 			//receicve the data for each element
 			for (char j = 0; j < NUMCOL; j++) {
 
-				while (!ReadFile(serialh, &rec, 1, NULL, NULL));
+				//while (!ReadFile(serialh, &rec, 1, NULL, NULL));
+				while (!ReadFile(serialh, &rec, 1, &read, NULL));
 				sensordata[recrow][j] = rec;
 				sensordata[recrow][j] = sensordata[recrow][j] << 8;
 				//tell mbed that message was received
 
-				while (!ReadFile(serialh, &rec, 1, NULL, NULL));
+				//while (!ReadFile(serialh, &rec, 1, NULL, NULL));
+				while (!ReadFile(serialh, &rec, 1, &read, NULL));
 				sensordata[recrow][j] = rec + sensordata[recrow][j];
 
 			}
@@ -75,6 +92,14 @@ int main() {
 				if (k < 2) EL1 = EL1 + result;
 				else if (k >=2 && k<4) EL2 = EL2 + result;
 				datalog << sensordata[writerow][k] << "\t\t";
+				
+				if (writerow == 1 ) { 
+					printf("%i \t", sensordata[writerow][k]);
+				}
+
+				if (k == 3 && writerow == 1) {
+					printf("\n"); 
+				}
 			}
 			linecounter++;
 			datalog << '\n';
@@ -103,10 +128,6 @@ int main() {
 			datalog.open("MatData.txt");
 		}
 	}
-	
-
-
-
 }
 
 
@@ -116,11 +137,11 @@ void sendlight(char light,char PWM)
 {
 	char first = 's';
 	char space = ' ';
-	WriteFile(serialh, &first, 1, NULL, NULL);
+	//WriteFile(serialh, &first, 1, NULL, NULL);
 	for (int l = 0; l<10; l++);
-	WriteFile(serialh, &light, 1, NULL, NULL);
+	//WriteFile(serialh, &light, 1, NULL, NULL);
 	for (int l = 0; l<10; l++);
-	WriteFile(serialh, &PWM, 1, NULL, NULL);
+	//WriteFile(serialh, &PWM, 1, NULL, NULL);
 	for (int l = 0; l<10; l++);
 	
 }
